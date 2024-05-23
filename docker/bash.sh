@@ -517,3 +517,5 @@ if ${DRY_RUN}; then
 else
     ${DOCKER_CMD[@]+"${DOCKER_CMD[@]}"}
 fi
+
+echo Finish running exit status $?
