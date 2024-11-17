@@ -628,6 +628,15 @@ inline Array<State> RandomSampleStates(const Array<State>& in_states, std::mt199
   return out_states;
 }
 
+inline Array<Array<State> > RandomSampleStatesForGroup(const Array<Array<State> >& in_states, 
+                                                      std::mt19937* random_gen, size_t out_size) {
+  Array<Array<State> > out_states;
+  for (size_t i = 0; i < out_size; i++) {
+    out_states.push_back(in_states[(*random_gen)() % in_states.size()]);
+  }
+  return out_states;
+}
+
 /*! \brief Compute prefix-sum probability based on the given weights */
 inline void ComputePrefixSumProb(const std::vector<float>& weights,
                                  std::vector<double>* prefix_sum_probs) {

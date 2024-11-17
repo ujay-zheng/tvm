@@ -39,6 +39,7 @@ namespace tvm {
 namespace auto_scheduler {
 
 class SketchPolicyNode;
+class GroupSketchPolicyNode;
 
 /********** Sketch Generation Rule **********/
 
@@ -65,6 +66,8 @@ class SketchGenerationRule {
    */
   virtual ConditionKind MeetCondition(const SketchPolicyNode& policy, const State& state,
                                       int stage_id) const = 0;
+  virtual ConditionKind MeetCondition(const GroupSketchPolicyNode& policy, 
+                                      int task_id, const State& state, int stage_id) const = 0;
 
   /*!
    * \brief Apply function of this rule.
@@ -76,6 +79,8 @@ class SketchGenerationRule {
    */
   virtual std::vector<std::pair<State, int>> Apply(const SketchPolicyNode& policy,
                                                    const State& state, int stage_id) const = 0;
+  virtual std::vector<std::pair<State, int> > Apply(const GroupSketchPolicyNode& policy, 
+                                                    int task_id, const State& state, int stage_id) const = 0;
 
   /*!
    * \brief Get the name of this rule.
@@ -84,14 +89,18 @@ class SketchGenerationRule {
   virtual std::string GetRuleName() const = 0;
 };
 
-#define DEFINE_SKETCH_GENERATION_RULE(rule_name)                                                 \
-  class rule_name : public SketchGenerationRule {                                                \
-   public:                                                                                       \
-    ConditionKind MeetCondition(const SketchPolicyNode& policy, const State& state,              \
-                                int stage_id) const final;                                       \
-    std::vector<std::pair<State, int>> Apply(const SketchPolicyNode& policy, const State& state, \
-                                             int stage_id) const final;                          \
-    std::string GetRuleName() const final { return #rule_name; }                                 \
+#define DEFINE_SKETCH_GENERATION_RULE(rule_name)                                                            \
+  class rule_name : public SketchGenerationRule {                                                           \
+   public:                                                                                                  \
+    ConditionKind MeetCondition(const SketchPolicyNode& policy, const State& state,                         \
+                                int stage_id) const final;                                                  \
+    ConditionKind MeetCondition(const GroupSketchPolicyNode& policy,                                        \
+                                int task_id, const State& state, int stage_id) const final;                 \
+    std::vector<std::pair<State, int>> Apply(const SketchPolicyNode& policy, const State& state,            \
+                                             int stage_id) const final;                                     \
+    std::vector<std::pair<State, int> > Apply(const GroupSketchPolicyNode& policy,                          \
+                                              int task_id, const State& state, int stage_id) const final;   \
+    std::string GetRuleName() const final { return #rule_name; }                                            \
   };
 
 /*! \brief The rule that simply skips the current stage. It returns an unchanged state and move to
@@ -142,9 +151,13 @@ class RuleCustomSketch : public SketchGenerationRule {
 
   ConditionKind MeetCondition(const SketchPolicyNode& policy, const State& state,
                               int stage_id) const final;
+  ConditionKind MeetCondition(const GroupSketchPolicyNode& policy, 
+                              int task_id, const State& state, int stage_id) const final;
 
   std::vector<std::pair<State, int>> Apply(const SketchPolicyNode& policy, const State& state,
                                            int stage_id) const final;
+  std::vector<std::pair<State, int> > Apply(const GroupSketchPolicyNode& policy, 
+                                           int task_id, const State& state, int stage_id) const final;
 
   std::string GetRuleName() const final { return rule_name_; }
 
@@ -171,16 +184,19 @@ class PopulationGenerationRule {
    */
   virtual ResultKind Apply(SketchPolicyNode* policy, State* state,
                            std::mt19937* rand_gen) const = 0;
+  virtual ResultKind Apply(GroupSketchPolicyNode* policy, int task_id,
+                           State* state, std::mt19937* rand_gen) const = 0;
 
   /*! \brief The deconstructor */
   virtual ~PopulationGenerationRule() = default;
 };
 
 // A helper to define population initialization rules
-#define DEFINE_INIT_POPULATION_RULE(rule_name)                                                    \
-  class rule_name : public PopulationGenerationRule {                                             \
-   public:                                                                                        \
-    ResultKind Apply(SketchPolicyNode* policy, State* state, std::mt19937* rand_gen) const final; \
+#define DEFINE_INIT_POPULATION_RULE(rule_name)                                                                                                  \
+  class rule_name : public PopulationGenerationRule {                                                                                           \
+   public:                                                                                                                                      \
+    ResultKind Apply(SketchPolicyNode* policy, State* state, std::mt19937* rand_gen) const final;                                               \
+    ResultKind Apply(GroupSketchPolicyNode* policy, int task_id, State* state, std::mt19937* rand_gen) const final;       \
   };
 
 /*! \brief The rule that fills the incomplete SplitSteps. */
@@ -218,11 +234,12 @@ class PopulationMutationRule : public PopulationGenerationRule {
 };
 
 // A helper to define mutation rules used in the evolutionary search
-#define DEFINE_MUTATE_POPULATION_RULE(rule_name)                                                  \
-  class rule_name : public PopulationMutationRule {                                               \
-   public:                                                                                        \
-    explicit rule_name(double weight) : PopulationMutationRule(weight) {}                         \
-    ResultKind Apply(SketchPolicyNode* policy, State* state, std::mt19937* rand_gen) const final; \
+#define DEFINE_MUTATE_POPULATION_RULE(rule_name)                                                                                                  \
+  class rule_name : public PopulationMutationRule {                                                                                               \
+   public:                                                                                                                                        \
+    explicit rule_name(double weight) : PopulationMutationRule(weight) {}                                                                         \
+    ResultKind Apply(SketchPolicyNode* policy, State* state, std::mt19937* rand_gen) const final;                                                 \
+    ResultKind Apply(GroupSketchPolicyNode* policy, int task_id, State* state, std::mt19937* rand_gen) const final;         \
   };
 
 /*! \brief The rule that mutates tile size by randomly dividing a tile size by a factor

@@ -68,6 +68,46 @@ std::pair<te::Schedule, Array<te::Tensor>> AutoSchedule(SearchPolicy search_poli
   }
 }
 
+std::vector<std::pair<te::Schedule, Array<te::Tensor> > > AutoScheduleForGroup(
+                                                    GroupSearchPolicy search_policy,
+                                                    TuningOptions tuning_options,
+                                                    Optional<Array<GroupMeasureCallback> > measure_callbacks,
+                                                    int run_number,
+                                                    int measure_loop_repeat, 
+                                                    int n_parallel) {
+  GroupMeasurer measurer = GroupMeasurer(measure_callbacks, run_number, measure_loop_repeat, n_parallel);
+  Array<State> group_state = search_policy->Search(tuning_options->num_measure_trials, tuning_options->early_stopping,
+                            tuning_options->num_measures_per_round, measurer);
+  
+  std::vector<std::pair<te::Schedule, Array<te::Tensor> > > ret;
+
+  if(group_state.size() == 0) {
+    StdCout(tuning_options->verbose)
+        << "No valid group state found in this search round. Check if it has traversed all of the "
+        << "search space." << std::endl;
+    for(size_t task_id=0; task_id<search_policy->task_group->tasks.size(); task_id++) {
+      ret.push_back({te::Schedule(search_policy->task_group->tasks[task_id]->compute_dag->ops),
+                      search_policy->task_group->tasks[task_id]->compute_dag->tensors});
+    }
+  } else {
+    for(size_t task_id=0; task_id<search_policy->task_group->tasks.size(); task_id++) {
+      if (group_state[task_id].defined()) {
+        ret.push_back(search_policy->task_group->tasks[task_id]->compute_dag.ApplySteps(group_state[task_id]->transform_steps));
+      } else {
+        StdCout(1)
+          << task_id 
+          << " failed "
+          << "No valid state found in this search round. Check if it has traversed all of the "
+          << "search space." << std::endl;
+          ret.push_back({te::Schedule(search_policy->task_group->tasks[task_id]->compute_dag->ops),
+                        search_policy->task_group->tasks[task_id]->compute_dag->tensors});
+      }
+    }
+  }
+
+  return ret;
+}
+
 TVM_REGISTER_GLOBAL("auto_scheduler.TuningOptions")
     .set_body_typed([](int num_measure_trials, int early_stopping, int num_measures_per_round,
                        int verbose, ProgramBuilder builder, ProgramRunner runner,
@@ -80,6 +120,22 @@ TVM_REGISTER_GLOBAL("auto_scheduler.AutoSchedule")
     .set_body_typed([](SearchPolicy search_policy, TuningOptions tuning_options) {
       auto [sch, return_tensors] = AutoSchedule(search_policy, tuning_options);
       return Array<ObjectRef>{sch, return_tensors};
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.AutoScheduleForGroup")
+    .set_body_typed([](GroupSearchPolicy search_policy, TuningOptions tuning_options,
+                      Optional<Array<GroupMeasureCallback>> measure_callbacks,
+                      int run_number, int measure_loop_repeat, int n_parallel) {
+      std::vector<std::pair<te::Schedule, Array<te::Tensor> > > imp = AutoScheduleForGroup(
+                                                              search_policy, tuning_options,
+                                                              measure_callbacks, run_number,
+                                                              measure_loop_repeat, n_parallel);
+      Array<Array<ObjectRef> > ret;
+      for(size_t item_id=0; item_id<imp.size(); item_id++) {
+        auto [sch, return_tensors] = imp[item_id];
+        ret.push_back(Array<ObjectRef>{sch, return_tensors});
+      }
+      return ret;
     });
 }  // namespace auto_scheduler
 }  // namespace tvm

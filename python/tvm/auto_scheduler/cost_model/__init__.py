@@ -17,5 +17,5 @@
 # pylint: disable=unused-import, redefined-builtin
 """ Cost model that estimates the performance of programs """
 
-from .cost_model import RandomModel
-from .xgb_model import XGBModel
+from .cost_model import RandomModel, GroupRandomModel
+from .xgb_model import XGBModel, GroupXGBModel

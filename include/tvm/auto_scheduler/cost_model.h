@@ -159,6 +159,82 @@ class PythonBasedModel : public CostModel {
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(PythonBasedModel, CostModel, PythonBasedModelNode);
 };
 
+/*************************** Group Cost Model ***************************/
+class GroupCostModelNode : public Object {
+ public:
+  virtual void Update(const Array<Array<MeasureInput> >& inputs, 
+                      const Array<MeasureResult>& results) = 0;
+  
+  virtual void Predict(const SearchTaskGroup& task_group, 
+                       const Array<Array<State> >& group_states,
+                       std::vector<float>* scores) = 0;
+  // virtual void PredictStages(const SearchTaskGroup task_group,
+  //                            const Array<Array<State> >& group_states,
+  //                            std::vector<float>* scores,
+  //                            std::vector<std::vector<std::vector<float> > >* stage_scores) {
+  //   LOG(FATAL) << "Not implemented";
+  // }
+
+  virtual ~GroupCostModelNode() {}
+
+  static constexpr const char* _type_key = "auto_scheduler.GroupCostModel";
+  TVM_DECLARE_BASE_OBJECT_INFO(GroupCostModelNode, Object);
+};
+
+class GroupCostModel : public ObjectRef {
+ public:
+  TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(GroupCostModel, ObjectRef, GroupCostModelNode);
+};
+
+class GroupRandomModelNode : public GroupCostModelNode {
+ public:
+  const TypedPackedFunc<void(size_t, void*)>* random_number_func;
+
+  void Update(const Array<Array<MeasureInput> >& inputs, 
+                      const Array<MeasureResult>& results) final;
+  void Predict(const SearchTaskGroup& task_group, 
+                       const Array<Array<State> >& group_states,
+                       std::vector<float>* scores) final;
+  
+  static constexpr const char* _type_key = "auto_scheduler.GroupRandomModel";
+  TVM_DECLARE_FINAL_OBJECT_INFO(GroupRandomModelNode, GroupCostModelNode);
+};
+
+class GroupRandomModel : public GroupCostModel {
+ public:
+  GroupRandomModel();
+  explicit GroupRandomModel(::tvm::runtime::ObjectPtr<::tvm::runtime::Object> n) : GroupCostModel(n) {}
+
+  GroupRandomModelNode* operator->() const {return static_cast<GroupRandomModelNode*>(data_.get());}
+
+  TVM_DEFINE_DEFAULT_COPY_MOVE_AND_ASSIGN(GroupRandomModel);
+  using ContainerType = RandomModelNode;
+};
+
+class GroupPythonBasedModelNode : public GroupCostModelNode {
+ public:
+  PackedFunc update_func;
+  PackedFunc predict_func;
+  // PackedFunc predict_stage_func;
+
+  void Update(const Array<Array<MeasureInput> >& inputs, const Array<MeasureResult>& results) final;
+  void Predict(const SearchTaskGroup& task_group, 
+              const Array<Array<State> >& group_states, std::vector<float>* scores) final;
+  // void PredictStages(const SearchTaskGroup task_group, 
+  //                    const Array<Array<State> >& group_states, std::vector<float>* scores,
+  //                    std::vector<std::vector<std::vector<float> > >* stage_scores) final;
+  
+  static constexpr const char* _type_key = "auto_scheduler.GroupPythonBasedModel";
+  TVM_DECLARE_FINAL_OBJECT_INFO(GroupPythonBasedModelNode, GroupCostModelNode);
+};
+
+class GroupPythonBasedModel : public GroupCostModel {
+ public:
+  GroupPythonBasedModel(PackedFunc update_func, PackedFunc predict_func);
+
+  TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(GroupPythonBasedModel, GroupCostModel, GroupPythonBasedModelNode);
+};
+
 }  // namespace auto_scheduler
 }  // namespace tvm
 

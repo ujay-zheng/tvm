@@ -1,3 +1,8 @@
+coco/others
+coco/src/test
+coco/src/group_measure_tmp
+coco/src/.pkl_memoize_py3
+coco/docker/.deps/*
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

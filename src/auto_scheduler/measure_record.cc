@@ -309,6 +309,7 @@ namespace auto_scheduler {
 
 TVM_REGISTER_OBJECT_TYPE(RecordToFileNode);
 TVM_REGISTER_OBJECT_TYPE(RecordReaderNode);
+TVM_REGISTER_OBJECT_TYPE(GroupRecordToFileNode);
 
 RecordToFile::RecordToFile(String filename) {
   auto node = make_object<RecordToFileNode>();
@@ -403,8 +404,35 @@ std::pair<Array<MeasureInput>, Array<MeasureResult>> RecordReaderNode::ReadLines
   return std::make_pair(inputs, results);
 }
 
+/******************************* Group Record  *******************************/
+GroupRecordToFile::GroupRecordToFile(Array<String> filenames) {
+  auto node = make_object<GroupRecordToFileNode>();
+  node->filenames = std::move(filenames);
+  data_ = std::move(node);
+}
+
+void GroupRecordToFileNode::Callback(const Array<Array<MeasureInput> >& inputs,
+                                      const Array<MeasureResult>& results) {
+  Array<Array<MeasureInput> > inputs_rearranged;
+  for(size_t task_id=0; task_id<filenames.size(); task_id++) {
+    Array<MeasureInput> tmp_i;
+    for(size_t item_id=0; item_id<inputs.size(); item_id++) {
+      tmp_i.push_back(inputs[item_id][task_id]);
+    }
+    inputs_rearranged.push_back(tmp_i);
+  }
+  for(size_t task_id=0; task_id<filenames.size(); task_id++) {
+    std::ofstream ofs(filenames[task_id], std::ofstream::app);
+    WriteMeasureRecords(&ofs, inputs_rearranged[task_id], results);
+  }
+}
+
 TVM_REGISTER_GLOBAL("auto_scheduler.RecordToFile").set_body_typed([](const String& filename) {
   return RecordToFile(filename);
+});
+
+TVM_REGISTER_GLOBAL("auto_scheduler.GroupRecordToFile").set_body_typed([](const Array<String>& filenames) {
+  return GroupRecordToFile(filenames);
 });
 
 TVM_REGISTER_GLOBAL("auto_scheduler.RecordReader").set_body_typed([](const String& filename) {

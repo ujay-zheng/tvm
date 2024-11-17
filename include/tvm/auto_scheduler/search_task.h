@@ -165,6 +165,27 @@ class SearchTask : public ObjectRef {
   TVM_DEFINE_OBJECT_REF_METHODS(SearchTask, ObjectRef, SearchTaskNode);
 };
 
+class SearchTaskGroupNode : public Object {
+public:
+  Array<SearchTask> tasks;
+  Array<Array<Integer> > launch_id_list;
+
+  void VisitAttrs(tvm::AttrVisitor* v) {
+    v->Visit("tasks", &tasks);
+    v->Visit("launch_id_list", &launch_id_list);
+  } 
+
+  static constexpr const char* _type_key = "auto_scheduler.SearchTaskGroup";
+  TVM_DECLARE_FINAL_OBJECT_INFO(SearchTaskGroupNode, Object);
+};
+
+class SearchTaskGroup : public ObjectRef {
+public:
+  SearchTaskGroup(Array<SearchTask> tasks, Array<Array<Integer> > launch_id_list);
+
+  TVM_DEFINE_OBJECT_REF_METHODS(SearchTaskGroup, ObjectRef, SearchTaskGroupNode);
+};
+
 }  // namespace auto_scheduler
 }  // namespace tvm
 

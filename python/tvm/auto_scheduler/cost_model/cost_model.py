@@ -172,3 +172,39 @@ class PythonBasedModel(CostModel):
         into a single float array.
         """
         raise NotImplementedError
+
+#=============================== Group Cost Model ==================================
+@tvm._ffi.register_object("auto_scheduler.GroupCostModel")
+class GroupCostModel(Object):
+    """The base class for group cost model"""
+
+@tvm._ffi.register_object("auto_scheduler.GroupRandomModel")
+class GroupRandomModel(GroupCostModel):
+    def __init__(self):
+        self.__init_handle_by_constructor__(_ffi_api.GroupRandomModel)
+    
+    def update(self, inputs, results):
+         _ffi_api.GroupCostModelUpdate(self, inputs, results)
+    
+    def predict(self, task_group, group_states):
+        return [x.value for x in _ffi_api.CostModelPredict(self, task_group, group_states)]
+
+@tvm._ffi.register_object("auto_scheduler.GroupPythonBasedModel")
+class GroupPythonBasedModel(GroupCostModel):
+    def __init__(self):
+        def update_func(inputs, results):
+            self.update(inputs, results)
+        
+        def predict_func(task, states, return_ptr):
+            return_ptr = ctypes.cast(return_ptr, ctypes.POINTER(ctypes.c_float))
+            array_wrapper = np.ctypeslib.as_array(return_ptr, shape=(len(states),))
+            array_wrapper[:] = self.predict(task, states)
+        
+        self.__init_handle_by_constructor__(
+            _ffi_api.GroupPythonBasedModel, update_func, predict_func)
+    
+    def update(self, inputs, results):
+        raise NotImplementedError
+
+    def predict(self, task, states):
+        raise NotImplementedError

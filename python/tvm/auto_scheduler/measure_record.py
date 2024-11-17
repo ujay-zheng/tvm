@@ -26,13 +26,19 @@ import numpy as np
 
 import tvm._ffi
 from tvm.runtime import Object
-from .measure import MeasureErrorNo, MeasureCallback
+from .measure import MeasureErrorNo, MeasureCallback, GroupMeasureCallback
 from .utils import calc_workload_dis_factor, decode_workload_key
 from . import _ffi_api
 
 logger = logging.getLogger("auto_scheduler")
 
+# Group Measure Record
+@tvm._ffi.register_object("auto_scheduler.GroupRecordToFile")
+class GroupRecordToFile(GroupMeasureCallback):
+    def __init__(self, filenames):
+        self.__init_handle_by_constructor__(_ffi_api.GroupRecordToFile, filenames)
 
+# Measure Recored
 @tvm._ffi.register_object("auto_scheduler.RecordToFile")
 class RecordToFile(MeasureCallback):
     """

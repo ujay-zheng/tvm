@@ -49,6 +49,7 @@
 namespace tvm {
 namespace auto_scheduler {
 
+class GroupSketchPolicy;
 class SearchPolicy;
 class MeasureInput;
 class MeasureResult;
@@ -534,6 +535,60 @@ class ProgramMeasurer : public ObjectRef {
                   int max_continuous_error = -1);
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(ProgramMeasurer, ObjectRef, ProgramMeasurerNode);
+};
+
+/************************************ Group Measure Callback ************************************/
+class GroupMeasureCallbackNode : public Object {
+ public:
+  virtual void Callback(const Array<Array<MeasureInput> >& inputs, const Array<MeasureResult>& results) = 0;
+  static constexpr const char* _type_key = "auto_scheduler.GroupMeasureCallback"; 
+  TVM_DECLARE_BASE_OBJECT_INFO(GroupMeasureCallbackNode, Object);
+};
+
+class GroupMeasureCallback : public ObjectRef {
+ public:
+  TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(GroupMeasureCallback, ObjectRef, GroupMeasureCallbackNode);
+};
+
+/************************************ Group Measure ************************************/
+class GroupMeasurerNode : public Object {
+ public:
+  int ct;
+  int error_ct;
+  std::unordered_map<std::string, double> best_flops;
+  std::unordered_map<std::string, Array<State> > best_state;
+  std::unordered_map<std::string, int> best_ct;
+  std::unordered_set<std::string> has_valid;
+  Optional<Array<GroupMeasureCallback> > callbacks;
+
+  int verbose=1;
+  int max_continuous_error;
+
+  //run part
+  int run_number;
+
+  // build part
+  int n_parallel;
+  // int build_timeout;
+  int measure_loop_repeat;
+
+  void Reset();
+
+  Array<MeasureResult> Measure(const SearchTaskGroup& task_group, const GroupSketchPolicy policy,
+                              const Array<Array<MeasureInput> >& inputs);
+  static const int DEFAULT_MAX_CONTINUOUS_ERROR = 150;
+
+  static constexpr const char* _type_key = "auto_scheduler.GroupMeasurer";
+  TVM_DECLARE_FINAL_OBJECT_INFO(GroupMeasurerNode, Object);
+ private:
+  Array<MeasureResult> BuildAndRun(const Array<Array<MeasureInput> >& measure_info_list, const Array<Array<Integer> > launch_id_list);
+};
+
+class GroupMeasurer : public ObjectRef {
+ public:
+  GroupMeasurer(Optional<Array<GroupMeasureCallback> > callbacks, int run_number, int measure_loop_repeat, int n_parallel);
+
+  TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(GroupMeasurer, ObjectRef, GroupMeasurerNode);
 };
 
 }  // namespace auto_scheduler

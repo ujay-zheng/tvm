@@ -200,6 +200,36 @@ class SearchPolicy : public ObjectRef {
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(SearchPolicy, ObjectRef, SearchPolicyNode);
 };
 
+/************************ Group Sketch Policy ************************/
+class GroupSearchPolicyNode : public Object {
+ public:
+  SearchTaskGroup task_group;
+  int verbose=0;
+
+  void VisitAttrs(AttrVisitor* v) {
+    v->Visit("task_group", &task_group);
+    v->Visit("verbose", &verbose);
+  }
+
+  virtual Array<State> Search(int n_trials, int early_stopping, int num_measure_per_iter, 
+                              GroupMeasurer measurer) = 0;
+  
+  static constexpr const char* _type_key = "auto_scheduler.GroupSearchPolicy";
+  TVM_DECLARE_BASE_OBJECT_INFO(GroupSearchPolicyNode, Object);
+  
+ protected:
+  std::unordered_set<std::string> measured_states_set_;
+  // A vector containing the group state(vector containing tasks state)
+  std::vector<Array<State> > measured_states_vector_;
+  std::vector<State> invalid_states_vectors_;
+  std::vector<float> measured_states_throughputs_;
+};
+
+class GroupSearchPolicy : public ObjectRef {
+ public:
+  TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(GroupSearchPolicy, ObjectRef, GroupSearchPolicyNode);
+};
+
 }  // namespace auto_scheduler
 }  // namespace tvm
 

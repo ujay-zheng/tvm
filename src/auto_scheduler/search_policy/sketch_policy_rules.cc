@@ -632,7 +632,8 @@ PopulationGenerationRule::ResultKind InitParallel::Apply(SketchPolicyNode* polic
 
   for (size_t stage_id = 0; stage_id < (*state)->stages.size(); ++stage_id) {
     const Stage& stage = (*state)->stages[stage_id];
-    if (stage->compute_at != ComputeAtKind::kRoot || stage->op_type == StageKind::kPlaceholder) {
+    if (stage->compute_at != ComputeAtKind::kRoot ||
+        stage->op_type == StageKind::kPlaceholder) {
       continue;
     }
 

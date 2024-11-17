@@ -41,6 +41,8 @@
 namespace tvm {
 namespace runtime {
 
+std::vector<int> cu_launch_params;
+
 // Module to support thread-safe multi-GPU execution.
 // cuModule is a per-GPU module
 // The runtime will contain a per-device module table
@@ -171,14 +173,29 @@ class CUDAWrappedFunc {
     CUDA_CALL(cudaGetDevice(&device_id));
     ThreadWorkLoad wl = launch_param_config_.Extract(args);
 
+    cu_launch_params.resize(7);
+    cu_launch_params[0]=wl.grid_dim(0);
+    cu_launch_params[1]=wl.grid_dim(1);
+    cu_launch_params[2]=wl.grid_dim(2);
+    cu_launch_params[3]=wl.block_dim(0);
+    cu_launch_params[4]=wl.block_dim(1);
+    cu_launch_params[5]=wl.block_dim(2);
+    cu_launch_params[6]=wl.dyn_shmem_size;
+// std::cout << "gridDim=" << cu_launch_params[0] << ", " << cu_launch_params[0] << ", " << cu_launch_params[0] << ", " 
+// << "blockDim=" << cu_launch_params[0] << ", " << cu_launch_params[0] << ", " << cu_launch_params[0] << ", " 
+// << "sharedmem=" << cu_launch_params[0] << std::endl ;
+
     if (fcache_[device_id] == nullptr) {
       fcache_[device_id] = m_->GetFunc(device_id, func_name_);
       if (wl.dyn_shmem_size >= (48 << 10)) {
         // Assumption: dyn_shmem_size doesn't change across different invocations of
         // fcache_[device_id]
+std::cout << "larch shared memory" << std::endl;
         CUresult result = cuFuncSetAttribute(
             fcache_[device_id], CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES, wl.dyn_shmem_size);
+std::cout << "set dynamic shared memory" << std::endl;
         if (result != CUDA_SUCCESS) {
+std::cout << "set dynamic shared memory failed" << std::endl;
           LOG(FATAL) << "Failed to set the allowed dynamic shared memory size to "
                      << wl.dyn_shmem_size;
         }

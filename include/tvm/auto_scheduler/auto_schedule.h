@@ -98,6 +98,14 @@ class TuningOptions : public ObjectRef {
  */
 TVM_DLL std::pair<te::Schedule, Array<te::Tensor>> AutoSchedule(SearchPolicy search_policy,
                                                                 TuningOptions tuning_options);
+
+TVM_DLL std::vector<std::pair<te::Schedule, Array<te::Tensor> > > AutoSchedule(
+                                                    GroupSearchPolicy search_policy,
+                                                    TuningOptions tuning_options,
+                                                    Optional<Array<GroupMeasureCallback>> measure_callbacks,
+                                                    int run_number, 
+                                                    int measure_loop_repeat, 
+                                                    int n_parallel);
 }  // namespace auto_scheduler
 }  // namespace tvm
 

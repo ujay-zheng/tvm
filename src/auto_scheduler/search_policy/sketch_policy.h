@@ -231,6 +231,63 @@ class PreloadCustomSketchRule : public SearchCallback {
                                         PreloadCustomSketchRuleNode);
 };
 
+/******************* Group Sketch Policy *******************/
+
+class GroupSketchPolicyNode : public GroupSearchPolicyNode  {
+public:
+  // SearchTaskGroup task_group;
+  GroupCostModel proxy_model;
+  CostModel xgb;
+  Map<String, ObjectRef> params;
+  std::mt19937 rand_gen;
+
+  std::vector<SketchGenerationRule*> sketch_rules;
+  std::vector<PopulationGenerationRule*> init_rules;
+  std::vector<std::shared_ptr<PopulationMutationRule>> mutation_rules;
+
+  SplitFactorizationMemo split_memo;
+
+  int verbose;
+
+  void VisitAttrs(AttrVisitor* v){
+    v->Visit("search_task_group", &task_group);
+    v->Visit("verbose", &verbose);
+  }
+
+  Array<State> Search(int n_trials, int early_stopping, int num_measure_per_iter, 
+                      GroupMeasurer measurer) final;
+  
+  Array<State> GenerateSketchesForTask(int task_id);
+
+  Array<State> SampleInitPopulationForTask(int task_id);
+  Array<Array<State> > SampleInitPopulationForGroup();
+
+  Array<Array<State> > EvolutionarySearch(const Array<Array<State> >& init_population, int out_size);
+
+  static constexpr const char* _type_key = "auto_scheduler.GroupSketchPolicy";
+  TVM_DECLARE_FINAL_OBJECT_INFO(GroupSketchPolicyNode, GroupSearchPolicyNode);
+
+private:
+  Array<Array<State> > SearchOneRound(int num_random_states, Array<Array<State> >* random_states=nullptr);
+  Array<Array<MeasureInput> > PickStatesWithEpsGreedy(const Array<Array<State> >& best_states, const Array<Array<State> > random_states, int remaining_n_trials);
+
+  int num_measure_per_iter_;
+  // A vector containing the task sketch vector 
+  Array<Array<State> > sketch_cache_;
+  bool cache_empty_=true;
+  int sample_init_min_pop_;
+
+  friend class GroupSketchPolicy;
+};
+
+class GroupSketchPolicy : public GroupSearchPolicy {
+public:
+  GroupSketchPolicy(SearchTaskGroup task_group, GroupCostModel proxy_model, 
+                    CostModel xgb, Map<String, ObjectRef> params, 
+                    int seed, int verbose=0);
+  TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(GroupSketchPolicy, GroupSearchPolicy, GroupSketchPolicyNode);
+};
+
 }  // namespace auto_scheduler
 }  // namespace tvm
 

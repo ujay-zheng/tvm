@@ -134,6 +134,25 @@ void WriteMeasureRecords(std::ostream* os, const Array<MeasureInput>& inputs,
 void ReadMeasureRecord(const std::string& str, MeasureInputNode* inp, MeasureResultNode* res,
                        std::string* log_version);
 
+/******************************* Group Record *******************************/
+
+class GroupRecordToFileNode : public GroupMeasureCallbackNode {
+ public:
+  Array<String> filenames;
+
+  void Callback(const Array<Array<MeasureInput> >& inputs, const Array<MeasureResult>& results) final;
+  
+  static constexpr const char* _type_key = "auto_scheduler.GroupRecordToFile";
+  TVM_DECLARE_FINAL_OBJECT_INFO(GroupRecordToFileNode, GroupMeasureCallbackNode);
+};
+
+class GroupRecordToFile : public GroupMeasureCallback {
+ public:
+  explicit GroupRecordToFile(Array<String> filename);
+
+  TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(GroupRecordToFile, GroupMeasureCallback, GroupRecordToFileNode);
+};
+
 }  // namespace auto_scheduler
 }  // namespace tvm
 

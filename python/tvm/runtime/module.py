@@ -623,6 +623,15 @@ class Module(object):
 
         return fcompile(file_name, files, **kwargs)
 
+    def get_launch_params(self):
+        return [_ffi_api.GetLaunchParam(0),  
+                _ffi_api.GetLaunchParam(1),
+                _ffi_api.GetLaunchParam(2),
+                _ffi_api.GetLaunchParam(3),  
+                _ffi_api.GetLaunchParam(4),
+                _ffi_api.GetLaunchParam(5),
+                _ffi_api.GetLaunchParam(6)]
+
 
 def system_lib(symbol_prefix=""):
     """Get system-wide library module singleton.
