@@ -684,7 +684,7 @@ class CustomCallback(XGBoostCallback):
 
 avg_xgb = None
 
-class GroupXGBModel(GroupPythonBasedModel):
+class AvgXGBModel(GroupPythonBasedModel):
     def __init__(
         self, 
         verbose_eval=25,
@@ -754,67 +754,17 @@ class GroupXGBModel(GroupPythonBasedModel):
             return
 
         n_cached = len(self.feature_cache)
-        # # avg feature
-        tasks_features = {}
-        tasks_normalized_throughputs = {}
-        tasks_num = len(self.inputs_cache)
-        for task_id in range(tasks_num):
-            task_inputs_cache = self.inputs_cache[task_id]
-            task_features_tmp, task_throughputs_tmp, task_ids_list = get_per_store_features_from_measure_pairs(
-                task_inputs_cache, self.results_cache, skip_first_n_feature_extraction=n_cached
-            )
-            tasks_features[task_id] = []
-            tasks_normalized_throughputs[task_id] = []
-            for t_feature in task_features_tmp:
-                features_list = []
-                for f in t_feature:
-                    features_list.append(f)
-                tasks_features[task_id].append(features_list)
-            for t_throughputs in task_throughputs_tmp:
-                tasks_normalized_throughputs[task_id].append(t_throughputs)
-
-        # tasks feature to group feature
         groups_num = len(group_measure_inputs)
-        groups_feature = []
-        for group_id in range(groups_num):
-            gfeatures = []
-            for task_id in range(tasks_num):
-                gfeatures.append(tasks_features[task_id][group_id])
-            groups_feature.append(gfeatures)
-        
-        # do avg for every group
-        avg_features = []
-        for group_id in range(groups_num):
-            producted_group_feature = itertools.product(*groups_feature[group_id])
-            tmp = []
-            for pgfeature in producted_group_feature:
-                avg_res = None
-                for ptfeature in pgfeature:
-                    if avg_res is None:
-                        avg_res = ptfeature
-                    else:
-                        avg_res += ptfeature
-                avg_res /= len(pgfeature)
-                tmp.append(avg_res)
-            avg_features.append(np.array(tmp))
-        # throughput avg
-        avg_normalized_throughputs = None
-        for task_id in range(tasks_num):
-            if avg_normalized_throughputs is None:
-                avg_normalized_throughputs = np.array(tasks_normalized_throughputs[task_id], dtype=float)
-            else:
-                avg_normalized_throughputs += np.array(tasks_normalized_throughputs[task_id], dtype=float)
-        avg_normalized_throughputs /= tasks_num
-
-        # gids = np.ones(shape=avg_normalized_throughputs.shape, dtype=int)
-        gids = np.zeros(shape=(len(avg_features), ), dtype=int)
+        groups_features, group_normalized_throughputs = get_update_group_features(self.inputs_cache, self.results_cache, n_cached, groups_num)
+        avg_group_features = self.do_avg(groups_features)
+        gids = np.zeros(shape=(len(avg_group_features), ), dtype=int)
 
         if n_cached > 0:
-            avg_features[:n_cached] = self.feature_cache
-        avg_features = np.array(avg_features, dtype=object)
-        self.feature_cache = avg_features
+            avg_group_features[:n_cached] = self.feature_cache
+        avg_group_features = np.array(avg_group_features, dtype=object)
+        self.feature_cache = avg_group_features
         dtrain = pack_sum_xgbmatrix(
-            avg_features, avg_normalized_throughputs, gids, avg_normalized_throughputs
+            avg_group_features, group_normalized_throughputs, gids, group_normalized_throughputs
         )
 
         self.bst = avg_xgb.train(
@@ -834,34 +784,187 @@ class GroupXGBModel(GroupPythonBasedModel):
         )
 
     def predict(self, task_group, group_states):
-        tasks_states = []
-        task_num = len(task_group.tasks)
-        for task_id in range(task_num):
-            ts_tmp = []
-            for gs in group_states:
-                ts_tmp.append(gs[task_id])
-            tasks_states.append(ts_tmp)
-
-        group_features = None
-        for task_id in range(task_num):
-            task = task_group.tasks[task_id]
-            task_s = tasks_states[task_id]
-            task_features = get_per_store_features_from_states(task_s, task)
-            if group_features is None:
-                group_features = task_features
-            else:
-                group_features += task_features
-        group_features /= task_num
-
+        groups_features = get_predict_group_features(task_group, group_states)
+        avg_group_features = np.array(self.do_avg(groups_features), dtype=object)
         if self.bst is not None and len(self.inputs_cache) > self.num_warmup_sample:
-            dtest, pack_ids = feature_to_pack_sum_xgbmatrix(group_features)
+            dtest, pack_ids = feature_to_pack_sum_xgbmatrix(avg_group_features)
             raw_preds = self.bst.predict(dtest)
             ret = predict_throughput_pack_sum(raw_preds, pack_ids)
         else:
             ret = np.random.uniform(0, 1, (len(group_states),))
         
-        for idx, feature in enumerate(group_features):
+        for idx, feature in enumerate(avg_group_features):
             if feature.min() == feature.max() == 0:
                 ret[idx] = float("-inf")
 
         return ret
+    
+    def do_avg(self, groups_features):
+        avg_group_features = []
+        for group_feature_list in groups_features:
+            avg_group_features.append(np.average(group_feature_list, axis=1))
+        return avg_group_features
+
+concat_xgb = None
+
+class ConcatXGBModel(GroupPythonBasedModel):
+    def __init__(
+        self,
+        verbose_eval=25,
+        num_warmup_sample=100, 
+        seed=None,
+        model_file=None,
+        adaptive_training=False
+    ):
+        global concat_xgb
+        try:
+            if concat_xgb is None:
+                concat_xgb = __import__("xgboost")
+        except ImportError:
+            raise ImportError(
+                "XGBoost is required for XGBModel. "
+                "Please install its python package first. "
+                "Help: (https://xgboost.readthedocs.io/en/latest/) "
+            ) from None
+        
+        self.concat_xgb_params = {
+            "max_depth": 10,
+            "gamma": 0.001,
+            "min_child_weight": 0,
+            "eta": 0.2,
+            # todo(merrymercy): automatically decrease learning rate when the loss is too large
+            "n_gpus": 0,
+            "nthread": multiprocessing.cpu_count() // 2,
+            "verbosity": 0,
+            "seed": seed or 43,
+            "disable_default_eval_metric": 1,
+        }
+        self.bst = None
+        self.plan_size = 32
+        self.num_warmup_sample = num_warmup_sample
+        self.verbose_eval = verbose_eval
+        self.model_file = model_file
+        self.adaptive_training = adaptive_training
+
+        super().__init__()
+
+        self.inputs_cache = []
+        self.results_cache = []
+        self.last_train_length = 0
+        self.feature_cache = []
+
+    def update(self, group_measure_inputs, group_measure_results):
+        if len(group_measure_inputs) <= 0:
+            return
+        assert len(group_measure_inputs) == len(group_measure_results)
+
+        for gm in group_measure_inputs:
+            if len(self.inputs_cache) == 0:
+                for tm in gm:
+                    self.inputs_cache.append([tm])
+            else:
+                for task_id in range(len(gm)):
+                    tm = gm[task_id]
+                    self.inputs_cache[task_id].append(tm)
+            self.last_train_length += 1
+        self.results_cache.extend(group_measure_results)
+
+        if (
+            self.adaptive_training and 
+            len(self.inputs_cache[0]) - self.last_train_length < self.last_train_length / 5
+        ):
+            return
+        
+        n_cached = len(self.feature_cache)
+        groups_num = len(group_measure_inputs)
+        groups_features, group_normalized_throughputs = get_update_group_features(self.inputs_cache, self.results_cache, n_cached, groups_num)
+        groups_concat_features = self.do_concat(groups_features)
+        gids = np.zeros(shape=(len(groups_concat_features), ), dtype=int)
+
+        if n_cached > 0:
+            groups_concat_features[:n_cached] = self.feature_cache
+        groups_concat_features = np.array(groups_concat_features, dtype=object)
+        self.feature_cache = groups_concat_features
+        dtrain = pack_sum_xgbmatrix(
+            groups_concat_features, group_normalized_throughputs, gids, group_normalized_throughputs
+        )
+
+        self.bst = avg_xgb.train(
+            self.concat_xgb_params,
+            dtrain,
+            num_boost_round=10000,
+            obj=pack_sum_square_error,
+             callbacks=[
+                CustomCallback(
+                    stopping_rounds=50,
+                    metric="tr-p-rmse",
+                    fevals=[pack_sum_rmse, pack_sum_average_peak_score(self.plan_size)],
+                    evals=[(dtrain, "tr")],
+                    maximize=False
+                )
+            ],
+        )
+
+    def predict(self, task_group, group_states):
+        groups_features = get_predict_group_features(task_group, group_states)
+        groups_concat_features = np.array(self.do_concat(groups_features), dtype=object)
+        if self.bst is not None and len(self.inputs_cache) > self.num_warmup_sample:
+            dtest, pack_ids = feature_to_pack_sum_xgbmatrix(groups_concat_features)
+            raw_preds = self.bst.predict(dtest)
+            ret = predict_throughput_pack_sum(raw_preds, pack_ids)
+        else:
+           ret = np.random.uniform(0, 1, (len(group_states),))
+        
+        for idx, feature in enumerate(groups_concat_features):
+            if feature.min() == feature.max() == 0:
+                ret[idx] = float("-inf")
+        return ret
+
+    def do_concat(self, groups_features):
+        groups_concat_features = []
+        for group_features_list in groups_features:
+            group_concat_features_list = []
+            for group_feature in group_features_list:
+                group_concat_features_list.append(np.concatenate(group_feature))
+            groups_concat_features.append(np.array(group_concat_features_list))
+        return groups_concat_features
+
+def tasks_features_product(groups_num, tasks_num, tasks_features_list):
+    groups_features = []
+    for group_id in range(groups_num):
+        group_tasks_features = []
+        for task_id in range(tasks_num):
+            group_tasks_features.append(tasks_features_list[task_id][group_id])
+        groups_features.append(np.array(list(itertools.product(*group_tasks_features))))
+    return groups_features
+
+def get_predict_group_features(task_group, group_states):
+    task_num = len(task_group.tasks)
+    groups_num = len(group_states)
+    tasks_states_list = []
+    for task_id in range(task_num):
+        state_list = []
+        for gstate in group_states:
+            state_list.append(gstate[task_id])
+        tasks_states_list.append(state_list)
+    tasks_features_list = []
+    for task_id in range(task_num):
+        task = task_group.tasks[task_id]
+        state_list = tasks_states_list[task_id]
+        features_list = get_per_store_features_from_states(state_list, task)
+        tasks_features_list.append(features_list)
+    return tasks_features_product(groups_num, task_num, tasks_features_list)
+
+def get_update_group_features(inputs_cache, results_cache, n_cached, groups_num):
+    tasks_features_list = []
+    tasks_normalized_throughputs_list = []
+    tasks_num = len(inputs_cache)
+    for task_id in range(tasks_num):
+        task_inputs_cache = inputs_cache[task_id]
+        task_features, task_throughputs, task_ids_list = get_per_store_features_from_measure_pairs(
+            task_inputs_cache, results_cache, skip_first_n_feature_extraction=n_cached
+        )
+        tasks_features_list.append(task_features)
+        tasks_normalized_throughputs_list.append(task_throughputs)
+
+    return tasks_features_product(groups_num, tasks_num, tasks_features_list), np.average(np.array(tasks_normalized_throughputs_list), axis=0)

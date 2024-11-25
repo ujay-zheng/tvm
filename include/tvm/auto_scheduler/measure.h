@@ -564,11 +564,6 @@ class GroupMeasurerNode : public Object {
   int verbose=1;
   int max_continuous_error;
 
-  //run part
-  int run_number;
-
-  // build part
-  int n_parallel;
   // int build_timeout;
   int measure_loop_repeat;
 
@@ -581,12 +576,12 @@ class GroupMeasurerNode : public Object {
   static constexpr const char* _type_key = "auto_scheduler.GroupMeasurer";
   TVM_DECLARE_FINAL_OBJECT_INFO(GroupMeasurerNode, Object);
  private:
-  Array<MeasureResult> BuildAndRun(const Array<Array<MeasureInput> >& measure_info_list, const Array<Array<Integer> > launch_id_list);
+  Array<MeasureResult> BuildAndRun(const Array<Array<MeasureInput> >& group_measure_inputs, const Array<Array<Integer> > topological_seq, int streams_num, int events_num);
 };
 
 class GroupMeasurer : public ObjectRef {
  public:
-  GroupMeasurer(Optional<Array<GroupMeasureCallback> > callbacks, int run_number, int measure_loop_repeat, int n_parallel);
+  GroupMeasurer(Optional<Array<GroupMeasureCallback> > callbacks, int measure_loop_repeat);
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(GroupMeasurer, ObjectRef, GroupMeasurerNode);
 };

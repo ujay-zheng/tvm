@@ -33,7 +33,7 @@ from .measure import LocalBuilder, LocalRunner
 from .measure_record import load_best_record
 from .workload_registry import make_workload_key
 from .compute_dag import ComputeDAG, LayoutRewriteOption
-from .cost_model import XGBModel, GroupXGBModel, GroupRandomModel
+from .cost_model import XGBModel, AvgXGBModel, GroupRandomModel
 from .search_policy import SketchPolicy, GroupSketchPolicy
 from .workload_registry import WORKLOAD_FUNC_REGISTRY, register_workload_tensors
 from . import _ffi_api
@@ -650,17 +650,45 @@ def auto_schedule(task, search_policy=None, tuning_options=TuningOptions()):
         "See https://github.com/apache/tvm/pull/7028 for the upgrade guide."
     )
 
+# Topology Node Type:
+# Task = 0
+# Event = 1
+# Sync = 2
+class GroupGraph:
+    def __init__(self, tasks, stream_num):
+        self.tasks = tasks
+        self.topological_seq = []
+        self.streams_num = stream_num
+        self.events = set()
+        # # start node dependency init
+        # self.create_event(0, 0)
+        # for stream_id in range(1, stream_num):
+        #     self.stream_wait(stream_id, [0])
+    def launch(self, stream_id, task_id):
+        self.topological_seq.append([0, task_id, stream_id])
+    def create_event(self, stream_id, event_id):
+        self.topological_seq.append([1, event_id, stream_id])
+        self.events.add(event_id)
+    def stream_wait(self, stream_id, event_id_list):
+        for event_id in event_id_list:
+            self.topological_seq.append([2, stream_id, event_id])
+
 @tvm._ffi.register_object("auto_scheduler.SearchTaskGroup")
 class SearchTaskGroup(Object):
-    def __init__(self, tasks, launch_id):
-        self.tasks = tasks
+    def __init__(self, graph):
+        self.tasks = graph.tasks
+        self.topological_seq = graph.topological_seq
+        self.streams_num = graph.streams_num
+        self.events_num = len(graph.events)
         self.__init_handle_by_constructor__(
             _ffi_api.SearchTaskGroup,
-            tasks,
-            launch_id
+            graph.tasks,
+            graph.topological_seq,
+            graph.streams_num,
+            len(graph.events)
         )
     
-    def tune(self, tuning_options, measure_callback, run_num, measure_loop_repeat, n_parallel=multiprocessing.cpu_count()*2, proxy_model=GroupRandomModel(), xgb_file=None):
+    def tune(self, tuning_options, measure_callback, measure_loop_repeat, proxy_model=GroupRandomModel(), xgb_file=None):
         search_policy = GroupSketchPolicy(self, proxy_model, xgb_file=xgb_file)
 
-        _ffi_api.AutoScheduleForGroup(search_policy, tuning_options, measure_callback, run_num, measure_loop_repeat, n_parallel)
+        _ffi_api.AutoScheduleForGroup(search_policy, tuning_options, measure_callback, measure_loop_repeat)

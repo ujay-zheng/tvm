@@ -41,8 +41,6 @@
 namespace tvm {
 namespace runtime {
 
-extern std::vector<int> cu_launch_params;
-
 /*!
  * \brief Property of runtime module
  * We classify the property of runtime module into the following categories.

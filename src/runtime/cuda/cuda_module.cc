@@ -41,8 +41,6 @@
 namespace tvm {
 namespace runtime {
 
-std::vector<int> cu_launch_params;
-
 // Module to support thread-safe multi-GPU execution.
 // cuModule is a per-GPU module
 // The runtime will contain a per-device module table
@@ -172,18 +170,6 @@ class CUDAWrappedFunc {
     int device_id;
     CUDA_CALL(cudaGetDevice(&device_id));
     ThreadWorkLoad wl = launch_param_config_.Extract(args);
-
-    cu_launch_params.resize(7);
-    cu_launch_params[0]=wl.grid_dim(0);
-    cu_launch_params[1]=wl.grid_dim(1);
-    cu_launch_params[2]=wl.grid_dim(2);
-    cu_launch_params[3]=wl.block_dim(0);
-    cu_launch_params[4]=wl.block_dim(1);
-    cu_launch_params[5]=wl.block_dim(2);
-    cu_launch_params[6]=wl.dyn_shmem_size;
-// std::cout << "gridDim=" << cu_launch_params[0] << ", " << cu_launch_params[0] << ", " << cu_launch_params[0] << ", " 
-// << "blockDim=" << cu_launch_params[0] << ", " << cu_launch_params[0] << ", " << cu_launch_params[0] << ", " 
-// << "sharedmem=" << cu_launch_params[0] << std::endl ;
 
     if (fcache_[device_id] == nullptr) {
       fcache_[device_id] = m_->GetFunc(device_id, func_name_);

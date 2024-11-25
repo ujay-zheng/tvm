@@ -38,7 +38,7 @@ from .compute_dag import (
     LayoutRewriteOption,
     get_shape_from_rewritten_layout,
 )
-from .cost_model import RandomModel, XGBModel, GroupXGBModel
+from .cost_model import RandomModel, XGBModel, AvgXGBModel, ConcatXGBModel, GroupRandomModel
 from .dispatcher import ApplyHistoryBest, ApplyHistoryBestOrSample, DispatchContext
 from .measure import (
     LocalBuilder,
@@ -72,6 +72,7 @@ from .search_policy import (
 )
 from .search_task import (
     HardwareParams,
+    GroupGraph,
     SearchTask,
     SearchTaskGroup,
     TuningOptions,

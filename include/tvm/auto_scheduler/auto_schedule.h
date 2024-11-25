@@ -103,9 +103,7 @@ TVM_DLL std::vector<std::pair<te::Schedule, Array<te::Tensor> > > AutoSchedule(
                                                     GroupSearchPolicy search_policy,
                                                     TuningOptions tuning_options,
                                                     Optional<Array<GroupMeasureCallback>> measure_callbacks,
-                                                    int run_number, 
-                                                    int measure_loop_repeat, 
-                                                    int n_parallel);
+                                                    int measure_loop_repeat);
 }  // namespace auto_scheduler
 }  // namespace tvm
 

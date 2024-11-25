@@ -168,11 +168,15 @@ class SearchTask : public ObjectRef {
 class SearchTaskGroupNode : public Object {
 public:
   Array<SearchTask> tasks;
-  Array<Array<Integer> > launch_id_list;
+  Array<Array<Integer> > topological_seq;
+  int streams_num;
+  int events_num;
 
   void VisitAttrs(tvm::AttrVisitor* v) {
     v->Visit("tasks", &tasks);
-    v->Visit("launch_id_list", &launch_id_list);
+    v->Visit("topological_seq", &topological_seq);
+    v->Visit("streams_num", &streams_num);
+    v->Visit("events_num", &events_num);
   } 
 
   static constexpr const char* _type_key = "auto_scheduler.SearchTaskGroup";
@@ -181,7 +185,7 @@ public:
 
 class SearchTaskGroup : public ObjectRef {
 public:
-  SearchTaskGroup(Array<SearchTask> tasks, Array<Array<Integer> > launch_id_list);
+  SearchTaskGroup(Array<SearchTask> tasks, Array<Array<Integer> > topological_seq, int streams_num, int events_num);
 
   TVM_DEFINE_OBJECT_REF_METHODS(SearchTaskGroup, ObjectRef, SearchTaskGroupNode);
 };

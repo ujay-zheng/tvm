@@ -72,10 +72,8 @@ std::vector<std::pair<te::Schedule, Array<te::Tensor> > > AutoScheduleForGroup(
                                                     GroupSearchPolicy search_policy,
                                                     TuningOptions tuning_options,
                                                     Optional<Array<GroupMeasureCallback> > measure_callbacks,
-                                                    int run_number,
-                                                    int measure_loop_repeat, 
-                                                    int n_parallel) {
-  GroupMeasurer measurer = GroupMeasurer(measure_callbacks, run_number, measure_loop_repeat, n_parallel);
+                                                    int measure_loop_repeat) {
+  GroupMeasurer measurer = GroupMeasurer(measure_callbacks, measure_loop_repeat);
   Array<State> group_state = search_policy->Search(tuning_options->num_measure_trials, tuning_options->early_stopping,
                             tuning_options->num_measures_per_round, measurer);
   
@@ -124,12 +122,10 @@ TVM_REGISTER_GLOBAL("auto_scheduler.AutoSchedule")
 
 TVM_REGISTER_GLOBAL("auto_scheduler.AutoScheduleForGroup")
     .set_body_typed([](GroupSearchPolicy search_policy, TuningOptions tuning_options,
-                      Optional<Array<GroupMeasureCallback>> measure_callbacks,
-                      int run_number, int measure_loop_repeat, int n_parallel) {
+                      Optional<Array<GroupMeasureCallback>> measure_callbacks, int measure_loop_repeat) {
       std::vector<std::pair<te::Schedule, Array<te::Tensor> > > imp = AutoScheduleForGroup(
                                                               search_policy, tuning_options,
-                                                              measure_callbacks, run_number,
-                                                              measure_loop_repeat, n_parallel);
+                                                              measure_callbacks, measure_loop_repeat);
       Array<Array<ObjectRef> > ret;
       for(size_t item_id=0; item_id<imp.size(); item_id++) {
         auto [sch, return_tensors] = imp[item_id];

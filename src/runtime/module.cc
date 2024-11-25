@@ -215,11 +215,6 @@ TVM_REGISTER_GLOBAL("runtime.ModuleImplementsFunction")
       return mod->ImplementsFunction(std::move(name), query_imports);
     });
 
-TVM_REGISTER_GLOBAL("runtime.GetLaunchParam")
-    .set_body_typed([](int idx) {
-      return cu_launch_params[idx];
-    });
-
 TVM_REGISTER_OBJECT_TYPE(ModuleNode);
 }  // namespace runtime
 }  // namespace tvm

@@ -638,25 +638,25 @@ def _local_build_worker(inp_serialized, build_func, verbose):
             error_no = MeasureErrorNo.COMPILE_HOST
             error_msg = make_traceback_info()
     
-        # run one time to get launch params
-        cu_alloc_size = []
-        runtime_input = []
-        for arg_tensor in args:
-            alloc_size = 1
-            int_shape = []
-            for ss in arg_tensor.shape:
-                int_shape.append(int(ss))
-                alloc_size *= int_shape[-1]
-            cu_alloc_size.append([_get_dtype(arg_tensor.dtype), arg_tensor.name, math.ceil(alloc_size/128)*128])
-            runtime_input.append(tvm.nd.empty(arg_tensor.shape, device=tvm.cuda(0)))
-        try:
-            func(*(runtime_input))
-            cutxt = func.imported_modules[0].get_source()
-            cu_launch_params = func.get_launch_params()
-            # print(len(cutxt), cu_launch_params, cu_alloc_size)
-        except Exception:
-            error_no = MeasureErrorNo.COMPILE_HOST
-            error_msg = make_traceback_info()
+        # # run one time to get launch params
+        # cu_alloc_size = []
+        # runtime_input = []
+        # for arg_tensor in args:
+        #     alloc_size = 1
+        #     int_shape = []
+        #     for ss in arg_tensor.shape:
+        #         int_shape.append(int(ss))
+        #         alloc_size *= int_shape[-1]
+        #     cu_alloc_size.append([_get_dtype(arg_tensor.dtype), arg_tensor.name, math.ceil(alloc_size/128)*128])
+        #     runtime_input.append(tvm.nd.empty(arg_tensor.shape, device=tvm.cuda(0)))
+        # try:
+        #     func(*(runtime_input))
+        #     cutxt = func.imported_modules[0].get_source()
+        #     cu_launch_params = func.get_launch_params()
+        #     # print(len(cutxt), cu_launch_params, cu_alloc_size)
+        # except Exception:
+        #     error_no = MeasureErrorNo.COMPILE_HOST
+            # error_msg = make_traceback_info()
     else:
         filename = ""
 
@@ -1355,7 +1355,6 @@ def rpc_runner_run(
     return results
 
 #--------------------------------- Group Measure ----------------------------------
-
 cumain_template = \
 '''#include <cuda_runtime.h>
 #include <iostream>
@@ -1366,40 +1365,37 @@ int main(){{
 {event_create}
 {buffers_create}
 
-    // create cuda Graph
-    cudaGraph_t graph;
-    cudaGraphExec_t instance;
-    cudaStreamBeginCapture(stream_list[0], cudaStreamCaptureModeGlobal);
-    cudaEventRecord(start_event_list[0], stream_list[0]);
-{start_join}
-{measure}
-{end_join}
-    cudaStreamEndCapture(stream_list[0], &graph);
-    cudaGraphInstantiate(&instance, graph, NULL, NULL, 0);
+\t// create cuda Graph
+\tcudaGraph_t graph;
+\tcudaGraphExec_t instance;
+\tcudaStreamBeginCapture(stream_list[0], cudaStreamCaptureModeGlobal);
+{graph_build_code}
+\tcudaStreamEndCapture(stream_list[0], &graph);
+\tcudaGraphInstantiate(&instance, graph, NULL, NULL, 0);
 
-    // graph measure
-    cudaStream_t Gstream;
-    cudaStreamCreate(&Gstream);
-    // warm up
-    for(int i=0;i<5;i++) {{cudaGraphLaunch(instance, Gstream);}}
-    cudaEvent_t start, end;
-    cudaEventCreate(&start);
-    cudaEventCreate(&end);
-    // measure
-    cudaEventRecord(start, Gstream);
-    for(int i=0;i<{repeat};i++) {{cudaGraphLaunch(instance, Gstream);}}
-    cudaEventRecord(end, Gstream);
-    cudaEventSynchronize(end);
-    float duration;
-    cudaEventElapsedTime(&duration, start, end);
+\t// graph measure
+\tcudaStream_t Gstream;
+\tcudaStreamCreate(&Gstream);
+\t// warm up
+\tfor(int i=0;i<5;i++) {{cudaGraphLaunch(instance, Gstream);}}
+\tcudaEvent_t start, end;
+\tcudaEventCreate(&start);
+\tcudaEventCreate(&end);
+\t// measure
+\tcudaEventRecord(start, Gstream);
+\tfor(int i=0;i<{repeat};i++) {{cudaGraphLaunch(instance, Gstream);}}
+\tcudaEventRecord(end, Gstream);
+\tcudaEventSynchronize(end);
+\tfloat duration;
+\tcudaEventElapsedTime(&duration, start, end);
 
-    cudaError_t const err{{cudaGetLastError()}};
-    if (err == cudaSuccess) {{std::cout << duration/{repeat};}}
-    else {{std::cout << -9999;}}
+\tcudaError_t const err{{cudaGetLastError()}};
+\tif (err == cudaSuccess) {{std::cout << duration/{repeat};}}
+\telse {{std::cout << -9999;}}
 
 {buffers_destory}
-    cudaEventDestroy(start);
-    cudaEventDestroy(end);
+\tcudaEventDestroy(start);
+\tcudaEventDestroy(end);
 {event_destory}
 {stream_destory}
 cudaStreamDestroy(Gstream);
@@ -1407,178 +1403,170 @@ cudaStreamDestroy(Gstream);
     return 0;
 }}
 '''
-stream_create_template = '\tcudaStream_t stream_list[{0}];for(int i=0;i<{0};i++) {{cudaStreamCreate(&(stream_list[i]));}}'
-event_create_template = '''\tcudaEvent_t start_event_list[{0}]; for(int i=0;i<{0};i++) {{cudaEventCreate(&(start_event_list[i]));}}
-\tcudaEvent_t end_event_list[{0}]; for(int i=0;i<{0};i++) {{cudaEventCreate(&(end_event_list[i]));}}'''
-stream_destory_template = '\tfor(int i=0;i<{0};i++) {{cudaStreamDestroy(stream_list[i]);}}'
-event_destory_template = '''\tfor(int i=0;i<{0};i++) {{cudaEventDestroy(start_event_list[i]);}}
-for(int i=0;i<{0};i++) {{cudaEventDestroy(end_event_list[i]);}}
-'''
+streams_create_template = '\tcudaStream_t stream_list[{0}];for(int i=0;i<{0};i++) {{cudaStreamCreate(&(stream_list[i]));}}'
+events_create_template = '''\tcudaEvent_t event_list[{0}]; for(int i=0;i<{0};i++) {{cudaEventCreate(&(event_list[i]));}}'''
+streams_destory_template = '\tfor(int i=0;i<{0};i++) {{cudaStreamDestroy(stream_list[i]);}}'
+events_destory_template = '''\tfor(int i=0;i<{0};i++) {{cudaEventDestroy(event_list[i]);}}'''
 buffers_create_template = '\tfloat* task{0}_args{1};cudaMalloc((void**)&task{0}_args{1}, sizeof({2})*{3});\n'
-measure_template = '\t\ttask{0}<<<dim3({1},{2},{3}), dim3({4},{5},{6}), {7}, stream_list[{8}]>>>({9});\n'
+call_template = '\ttask{0}<<<dim3({1},{2},{3}), dim3({4},{5},{6}), 0, stream_list[{7}]>>>({8});\n'
+event_record_template = '\tcudaEventRecord(event_list[{0}], stream_list[{1}]);\n'
+stream_wait_template = '\tcudaStreamWaitEvent(stream_list[{0}], event_list[{1}], 0);\n'
 
+import re
 def _get_dtype(in_type):
     if 'float' in in_type:
         return 'float'
     elif 'int' in in_type:
         return 'int'
 
-def _get_task_cuinfo(task_measure_input_serialized):
-    task_measure_input = MeasureInput.deserialize(task_measure_input_serialized)
-    task = task_measure_input.task
-    task.target, task.target_host = Target.canon_target_and_host(task.target, task.target_host)
-    
-    task_args = []
+def _get_launch_params(tvm_ir):
+    pattern_template = r'T\.launch_thread\("{0}\.{1}",\s*\d+\)'
+    idtype_list = ["blockIdx", "threadIdx"]
+    idim_list = ["x", "y", "z"]
+    launch_params = []
+    for idtype in idtype_list:
+        for idim in idim_list:
+            pattern = pattern_template.format(idtype, idim)
+            match = re.search(pattern, tvm_ir)
+            if match:
+                launch_params.append(int(match.group().split(", ")[-1][:-1]))
+            else:
+                launch_params.append(1)
+    return launch_params
 
-    try:
-        task_sch, task_args = task.compute_dag.apply_steps_from_state(
-            task_measure_input.state, layout_rewrite=task.layout_rewrite_option
-        )
-    except Exception as e:
-        # print("tvm apply error!")
-        return False, None
-    
-    try:
-        with transform.PassContext().current():
-            culib = build_module.build(task_sch, task_args, target=task.target)
-    except Exception as e:
-        # print("tvm build error!")
-        return False, None
-
-    cu_alloc_size = []
-    runtime_input = []
+def _get_args(task_args):
+    args = []
     for arg_tensor in task_args:
         alloc_size = 1
-        int_shape = []
         for ss in arg_tensor.shape:
-            int_shape.append(int(ss))
-            alloc_size *= int_shape[-1]
-        cu_alloc_size.append([_get_dtype(arg_tensor.dtype), arg_tensor.name, math.ceil(alloc_size/128)*128])
-        runtime_input.append(tvm.nd.empty(int_shape, device=tvm.cuda(0)))
-    try:
-        culib(*(runtime_input))
-        cutxt = culib.imported_modules[0].get_source()
-        cu_launch_params = culib.get_launch_params()
-    except Exception as e:
-        # print("tvm runtime error!")
-        return False, None
+            alloc_size *= int(ss)
+        args.append([_get_dtype(arg_tensor.dtype), arg_tensor.name, math.ceil(alloc_size/128)*128])
+    return args
 
-    return True, (cutxt, cu_launch_params, cu_alloc_size)
-
-def _get_group_cuinfo(group_measure_input):
+def _get_group_cuinfo(group_input):
     group_cuinfo = []
-    for task_id in range(len(group_measure_input)):
-        task_measure_input = group_measure_input[task_id]
-        executor = PopenPoolExecutor(
-            1, 10000, reset_global_scope, (AutotvmGlobalScope.current,)
-        )
-        tuple_res = executor.map_with_error_catching(
-            _get_task_cuinfo, [task_measure_input.serialize()]
-        )
-        for res in tuple_res:
-            if res.status == StatusKind.COMPLETE and res.value[0]:
-                group_cuinfo.append(res.value[1])
-                # print(len(res.value[1][0]), res.value[1][1], res.value[1][2])
-                # print("-------------------------------------")
-            else:
-                return (MeasureErrorNo.INSTANTIATION_ERROR, make_traceback_info(), task_id, [])
-    return (MeasureErrorNo.NO_ERROR, None, -1, group_cuinfo)
+    for task_id in range(len(group_input)):
+        task_input = group_input[task_id]
+        task = task_input.task
+        task.target, task.target_host = Target.canon_target_and_host(task.target, task.target_host)
 
-def _codegen_build(filename, group_cuinfo, launch_id_list, repeat):
+        try:
+            sch, args = task.compute_dag.apply_steps_from_state(
+                task_input.state, layout_rewrite=task.layout_rewrite_option
+            )
+        except Exception as e:
+            return (MeasureErrorNo.INSTANTIATION_ERROR, make_traceback_info(), task_id, [])
+        try:
+            with transform.PassContext().current():
+                lib = build_module.build(sch, args, target=task.target)
+        except Exception as e:
+            return (MeasureErrorNo.INSTANTIATION_ERROR, make_traceback_info(), task_id, [])
+        tvm_ir = tvm.lower(sch, args, simple_mode=True)
+        group_cuinfo.append([lib.imported_modules[0].get_source(), 
+                            _get_launch_params(str(tvm_ir)),
+                            _get_args(args)])
+    return [MeasureErrorNo.NO_ERROR, None, -1, group_cuinfo]
+
+def _build_from_cuinfo(filename, cuinfo, topological_seq, streams_num, events_num, repeat):
     tic = time.time()
-
-    stream_id_set = set()
-    for lid in launch_id_list:
-        stream_id_set.add(lid[0])
-    stream_create_code = stream_create_template.format(len(stream_id_set))
-    event_create_code = event_create_template.format(len(stream_id_set))
-    stream_destory_code = stream_destory_template.format(len(stream_id_set))
-    event_destory_code = event_destory_template.format(len(stream_id_set))
-
-    start_join_code = "\t"
-    end_join_code_part1 = "\t"
-    end_join_code_part2 = "\t"
-    for stream_id in range(1, len(stream_id_set)):
-        start_join_code += "cudaStreamWaitEvent(stream_list[{0}], start_event_list[0], 0);".format(stream_id)
-        end_join_code_part1 += "cudaEventRecord(start_event_list[{0}], stream_list[{0}]);".format(stream_id)
-        end_join_code_part2 += "cudaStreamWaitEvent(stream_list[0], start_event_list[{0}], 0);".format(stream_id)
-    end_join_code = end_join_code_part1 + "\n" + end_join_code_part2
-    # print("end_join_code_part1", end_join_code_part1)
-    # print("end_join_code_part2", end_join_code_part2)
-    # print("end_join_code", end_join_code)
-
-    cukernels_code = ""
+    streams_create_code = streams_create_template.format(streams_num)
+    events_create_code = events_create_template.format(events_num)
+    streams_destory_code = streams_destory_template.format(streams_num)
+    events_destory_code = events_destory_template.format(events_num)
+    
     buffers_create_code = ""
     buffers_destory_code = ""
-    measure_code = ""
 
-    for task_id in range(len(group_cuinfo)):
-        cutxt, launch_params, cuallocs = group_cuinfo[task_id]
-        cukernels_code += cutxt.split("#endif\n")[-1].replace("default_function_kernel", "task{0}".format(task_id))
+    cukernels_code = ""
+    kernel_launch_infos = []
+    for task_id in range(len(cuinfo)):
+        cutxt, launch_params, args = cuinfo[task_id]
+        args_num = len(args)
+        
         buffers = []
-        for arg_id in range(len(cuallocs)):
-            alloc_type, alloc_name, alloc_size = cuallocs[arg_id]
-            buffers.append([alloc_type, alloc_size, cukernels_code.find(alloc_name), alloc_name])
+        for arg_id in range(args_num):
+            arg_type, arg_name, arg_size = args[arg_id]
+            buffers.append([arg_type, arg_size, cutxt.find(arg_name), arg_name])
         buffers.sort(key=lambda elem: elem[2])
-
+        
         call_args = ""
-        for buffer_id in range(len(buffers)):
+        for buffer_id in range(args_num):
             alloc_type, alloc_size, idx, alloc_name = buffers[buffer_id]
             call_args += "task{0}_args{1}, ".format(task_id, buffer_id)
             buffers_create_code += buffers_create_template.format(task_id, buffer_id, alloc_type, alloc_size)
             buffers_destory_code += '\tcudaFree(task{0}_args{1});\n'.format(task_id, buffer_id)
         call_args = call_args[:-2]
-        measure_code += measure_template.format(task_id, 
-                    launch_params[0], launch_params[1], launch_params[2], 
-                     launch_params[3], launch_params[4], launch_params[5], 
-                     launch_params[6], launch_id_list[task_id][0], call_args)
-
+        cukernels_code += cutxt.split("#endif\n")[-1].replace("default_function_kernel", "task{0}".format(task_id))
+        kernel_launch_infos.append([launch_params, call_args])
+    
+    graph_build_code = ""
+    for node in topological_seq:
+        node_type = int(node[0])
+        if node_type == 0: # kernel call
+            # node-type task_id stream_id
+            task_id = int(node[1])
+            stream_id = int(node[2])
+            task_launch_params = kernel_launch_infos[task_id][0]
+            task_call_args = kernel_launch_infos[task_id][1]
+            graph_build_code += call_template.format(task_id, 
+                    task_launch_params[0], task_launch_params[1], task_launch_params[2], 
+                    task_launch_params[3], task_launch_params[4], task_launch_params[5], 
+                    stream_id, task_call_args)
+        elif node_type == 1: # event record
+            event_id = int(node[1])
+            stream_id = int(node[2])
+            graph_build_code += event_record_template.format(event_id, stream_id)
+        elif node_type == 2: # stream wait event
+            stream_id = int(node[1])
+            event_id = int(node[2])
+            graph_build_code += stream_wait_template.format(stream_id, event_id)
+        else:
+            assert "Error Node Type"
+    
     with open(filename+".cu", "w") as f:
         f.writelines(cumain_template.format(
-            cukernels=cukernels_code, stream_create=stream_create_code,
-            event_create=event_create_code, buffers_create=buffers_create_code, 
-            start_join=start_join_code, measure=measure_code, end_join=end_join_code,
-            repeat=repeat, buffers_destory=buffers_destory_code,
-            event_destory=event_destory_code, stream_destory=stream_destory_code))
-    # os.system("cp {0}.cu /tvm/coco/tmp/{0}_{1}.cu".format(filename, time.time()))
-    try:
-        os.system("nvcc -arch=compute_80 -code=sm_80 -o {0} {0}.cu".format(filename))
-    except Exception:
-        return (MeasureErrorNo.COMPILE_HOST, "group build error", -1, MAX_FLOAT)
-    return (MeasureErrorNo.NO_ERROR, None, -1, time.time()-tic)
+            cukernels=cukernels_code, stream_create=streams_create_code, 
+            event_create=events_create_code, buffers_create=buffers_create_code, 
+            graph_build_code=graph_build_code, repeat=repeat, buffers_destory=buffers_destory_code,
+            event_destory=events_destory_code, stream_destory=streams_destory_code))
+    if os.system("nvcc -arch=compute_80 -code=sm_80 -o {0} {0}.cu".format(filename)) == 0:
+        return [MeasureErrorNo.NO_ERROR, None, -1, time.time()-tic]
+    else:
+        return [MeasureErrorNo.COMPILE_HOST, "group build error", -1, MAX_FLOAT]
 
-def _codegen_build_batch(queue, start_idx, end_idx, group_cuinfo_list, launch_id_list, repeat):
-    build_results = []
+def _build_batched_inputs(queue, start_idx, end_idx, group_measure_inputs, topological_seq, streams_num, events_num, repeat):
+    rvl = []
     for idx in range(start_idx, end_idx):
-        item_id, group_cuinfo = group_cuinfo_list[idx]
-        filename = "./group_measure_tmp/{0}".format(item_id)
-        build_results.append((item_id, _codegen_build(filename, group_cuinfo, launch_id_list, repeat)))
-    
-    queue.put(build_results)
+        error_no, error_msg, error_id, group_cuinfo = _get_group_cuinfo(group_measure_inputs[idx])
+        if error_no == MeasureErrorNo.NO_ERROR:
+            filename = "./group_measure_tmp/{0}".format(idx)
+            rvl.append([idx, _build_from_cuinfo(filename, group_cuinfo, topological_seq, streams_num, events_num, repeat)])
+        else:
+            rvl.append([idx, [error_no, error_msg, error_id, MAX_FLOAT]])
+    queue.put(rvl)
 
-def _parallel_codegen_build(group_cuinfo_list, launch_id_list, repeat):
+def _parallel_build_inputs(group_measure_inputs, topological_seq, streams_num, events_num, repeat):
     queue = multiprocessing.Queue()
-
     p_list = []
     core_num = multiprocessing.cpu_count()
-    batch = math.ceil(len(group_cuinfo_list) / core_num)
-    for core_id in range(min(core_num, len(group_cuinfo_list))):
+    batch = math.ceil(len(group_measure_inputs) / core_num)
+    for core_id in range(min(core_num, len(group_measure_inputs))):
         start_idx = core_id*batch
-        end_idx = min((core_id+1)*batch, len(group_cuinfo_list))
-        p = multiprocessing.Process(target=_codegen_build_batch, args=(queue, start_idx, end_idx, group_cuinfo_list, launch_id_list, repeat))
+        end_idx = min((core_id+1)*batch, len(group_measure_inputs))
+        p = multiprocessing.Process(target=_build_batched_inputs, args=(queue, start_idx, end_idx, group_measure_inputs, topological_seq, streams_num, events_num, repeat))
         p.start()
         p_list.append(p)
-
+    
     for p in p_list:
         p.join()
     
-    runnable_build_results = []
+    build_results = []
     for _ in p_list:
-        runnable_build_results.extend(queue.get(True))
-    return runnable_build_results
+        build_results.extend(queue.get(True))
+    return build_results
 
 @tvm._ffi.register_func("auto_scheduler.group_measurer.build_and_run")
-def group_build_and_run(group_measure_inputs, launch_id_list, repeat):
+def group_build_and_run(group_measure_inputs, topological_seq, streams_num, events_num, repeat):
     if os.path.exists("./group_measure_tmp"):
         if os.path.isdir("./group_measure_tmp"):
             shutil.rmtree("./group_measure_tmp")
@@ -1586,25 +1574,11 @@ def group_build_and_run(group_measure_inputs, launch_id_list, repeat):
             os.remove("./group_measure_tmp")
     os.mkdir("./group_measure_tmp")
 
-    group_cuinfo_list = []
-    build_results = [None for _ in group_measure_inputs]
-    measure_results = []
+    measure_results = [None for _ in group_measure_inputs]
 
-    for input_id in range(len(group_measure_inputs)):
-        error_no, error_msg, error_task, cuinfo = _get_group_cuinfo(group_measure_inputs[input_id])
-        if error_no == MeasureErrorNo.NO_ERROR:
-            group_cuinfo_list.append((input_id, cuinfo))
-        else :
-            build_results[input_id] = (error_no, error_msg, error_task, MAX_FLOAT)
-
-    runnable_build_results = _parallel_codegen_build(group_cuinfo_list, launch_id_list, repeat)
-
-    for runnable_id, runnable_build_r in runnable_build_results:
-        build_results[runnable_id] = runnable_build_r
-
-    for measure_id in range(len(build_results)):
-        build_res = build_results[measure_id]
-        filename = "./group_measure_tmp/{0}".format(measure_id)
+    build_results = _parallel_build_inputs(group_measure_inputs, topological_seq, streams_num, events_num, repeat)
+    for idx, build_res in build_results:
+        filename = "./group_measure_tmp/{0}".format(idx)
         if build_res[0] == MeasureErrorNo.NO_ERROR:
             try:
                 f = os.popen(filename)
@@ -1634,49 +1608,8 @@ def group_build_and_run(group_measure_inputs, launch_id_list, repeat):
                     build_res[1],
                     MAX_FLOAT,
                     time.time(), )
-        measure_results.append(MeasureResult(*res))
-    print("-----------------finished-------------------------")
+        measure_results[idx] = MeasureResult(*res)
     return measure_results
-
-# @tvm._ffi.register_func("auto_scheduler.group_measurer.build_and_run")
-# def group_build_and_run(group_measure_inputs, launch_id_list, repeat):
-#     if os.path.exists("./group_measure_tmp"):
-#         if os.path.isdir("./group_measure_tmp"):
-#             shutil.rmtree("./group_measure_tmp")
-#         else:
-#             os.remove("./group_measure_tmp")
-#     os.mkdir("./group_measure_tmp")
-
-#     measure_results = []
-
-#     for input_id in range(len(group_measure_inputs)):
-#         error_no, error_msg, error_task, cuinfo = _get_group_cuinfo(group_measure_inputs[input_id])
-#         res = ( (MAX_FLOAT,), 
-#                 error_no,
-#                 error_msg,
-#                 MAX_FLOAT,
-#                 time.time(), )
-#         if error_no == MeasureErrorNo.NO_ERROR:
-#             filename = "./group_measure_tmp/{0}".format(input_id)
-#             build_error_no, build_error_msg, build_error_task, build_cost = _codegen_build(filename, cuinfo, launch_id_list, repeat)
-#             if build_error_no == MeasureErrorNo.NO_ERROR:
-#                 try:
-#                     tic = time.time()
-#                     os.system(filename)
-#                     run_cost = time.time()-tic
-#                     res = ( (run_cost,), 
-#                             MeasureErrorNo.NO_ERROR, 
-#                             None,
-#                             build_cost+run_cost,
-#                             time.time(), )
-#                 except Exception:
-#                     res = ( (MAX_FLOAT,), 
-#                             MeasureErrorNo.RUNTIME_DEVICE,
-#                             "group runtime error",
-#                             MAX_FLOAT,
-#                             time.time(), )
-#         measure_results.append(MeasureResult(*res))
-#     return measure_results
 
 @tvm._ffi.register_object("auto_scheduler.GroupMeasureCallback")
 class GroupMeasureCallback(Object):
